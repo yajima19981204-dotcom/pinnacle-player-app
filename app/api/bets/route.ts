@@ -23,3 +23,11 @@ export async function POST(request:Request){
  const responseData=await (await fetch(url,{cache:"no-store"})).json();const game=isAlternate?responseData:(Array.isArray(responseData)?responseData.find((g:any)=>g.id===b.eventId):null);const book=game?.bookmakers?.find((x:any)=>x.key==="pinnacle")||game?.bookmakers?.[0];const market=book?.markets?.find((m:any)=>m.key===b.marketKey);const outcome=market?.outcomes?.find((o:any)=>o.name===b.selectionName&&(o.point??null)===(b.point??null));if(!game||!outcome)return Response.json({error:"オッズが更新されました。もう一度選んでください"},{status:409});
  const token=request.headers.get("authorization")?.replace(/^Bearer\s+/i,"")||"";const client=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,{global:{headers:{Authorization:`Bearer ${token}`}},auth:{persistSession:false}});const {data,error}=await client.rpc("place_point_bet",{p_event_id:game.id,p_sport_key:b.sportKey,p_commence_time:game.commence_time,p_home_team:game.home_team,p_away_team:game.away_team,p_market_key:b.marketKey,p_selection_name:outcome.name,p_point:outcome.point??null,p_odds:outcome.price,p_stake:stake});if(error)return Response.json({error:error.message},{status:400});return Response.json({ok:true,betId:data});
 }
+
+export async function DELETE(request:Request){
+ const user=await requireUser(request);if(!user)return Response.json({error:"ログインが必要です"},{status:401});
+ const {betId}=await request.json();if(typeof betId!=="string")return Response.json({error:"対象のベットが正しくありません"},{status:400});
+ const token=request.headers.get("authorization")?.replace(/^Bearer\s+/i,"")||"";const client=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,{global:{headers:{Authorization:`Bearer ${token}`}},auth:{persistSession:false}});
+ const {error}=await client.rpc("cancel_point_bet",{p_bet:betId});if(error)return Response.json({error:error.message},{status:400});
+ return Response.json({ok:true});
+}
