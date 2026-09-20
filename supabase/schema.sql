@@ -106,11 +106,13 @@ returns void language plpgsql security definer set search_path = public as $$
 declare v_bet public.bets%rowtype; v_credit bigint := 0;
 begin
   if auth.role() <> 'service_role' then raise exception '管理処理専用です'; end if;
-  if p_result not in ('win','loss','push') then raise exception '結果が正しくありません'; end if;
+  if p_result not in ('win','loss','push','half_win','half_loss') then raise exception '結果が正しくありません'; end if;
   select * into v_bet from public.bets where id = p_bet for update;
   if v_bet.id is null or v_bet.status = 'settled' then return; end if;
   if p_result = 'win' then v_credit := v_bet.potential_payout;
-  elsif p_result = 'push' then v_credit := v_bet.stake; end if;
+  elsif p_result = 'push' then v_credit := v_bet.stake;
+  elsif p_result = 'half_win' then v_credit := floor((v_bet.potential_payout + v_bet.stake) / 2.0);
+  elsif p_result = 'half_loss' then v_credit := floor(v_bet.stake / 2.0); end if;
   update public.bets set status='settled', result=p_result where id=v_bet.id;
   if v_credit > 0 then update public.profiles set balance=balance+v_credit,updated_at=now() where id=v_bet.user_id; end if;
 end; $$;
