@@ -49,5 +49,14 @@ export async function POST(request: Request) {
     await db.from("profiles").update({ active: Boolean(body.active), updated_at: new Date().toISOString() }).eq("id", member.id);
     return Response.json({ ok: true });
   }
+  if (body.action === "rename") {
+    const displayName = String(body.displayName || "").trim();
+    if (!displayName || displayName.length > 30) return Response.json({ error: "表示名は1〜30文字で入力してください" }, { status: 400 });
+    const { data: member } = await db.from("profiles").select("id").eq("id", body.userId).eq("parent_agent_id", me.id).single();
+    if (!member) return Response.json({ error: "自分の配下だけ操作できます" }, { status: 403 });
+    const { error } = await db.from("profiles").update({ display_name: displayName, updated_at: new Date().toISOString() }).eq("id", member.id);
+    if (error) return Response.json({ error: error.message }, { status: 400 });
+    return Response.json({ ok: true });
+  }
   return Response.json({ error: "操作が正しくありません" }, { status: 400 });
 }
