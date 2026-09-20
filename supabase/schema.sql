@@ -101,6 +101,28 @@ end; $$;
 revoke all on function public.place_point_bet(text,text,timestamptz,text,text,text,text,numeric,numeric,bigint) from public;
 grant execute on function public.place_point_bet(text,text,timestamptz,text,text,text,text,numeric,numeric,bigint) to authenticated;
 
+-- Allow a player to cancel only their own pending bet before kickoff.
+alter table public.bets drop constraint if exists bets_status_check;
+alter table public.bets add constraint bets_status_check check (status in ('pending','settled','cancelled'));
+
+create or replace function public.cancel_point_bet(p_bet uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_bet public.bets%rowtype; v_balance bigint;
+begin
+  select * into v_bet from public.bets
+  where id = p_bet and user_id = auth.uid() for update;
+  if v_bet.id is null then raise exception '対象のベットが見つかりません'; end if;
+  if v_bet.status <> 'pending' then raise exception 'このベットは取り消せません'; end if;
+  if v_bet.commence_time <= now() then raise exception '開始済みの試合は取り消せません'; end if;
+  select balance into v_balance from public.profiles where id = auth.uid() for update;
+  update public.bets set status = 'cancelled', result = null where id = v_bet.id;
+  update public.profiles set balance = balance + v_bet.stake, updated_at = now() where id = auth.uid();
+  insert into public.point_transactions(user_id, admin_id, amount, balance_before, balance_after, note)
+  values (auth.uid(), auth.uid(), v_bet.stake, v_balance, v_balance + v_bet.stake, '試合開始前のベット取消');
+end; $$;
+revoke all on function public.cancel_point_bet(uuid) from public;
+grant execute on function public.cancel_point_bet(uuid) to authenticated;
+
 create or replace function public.settle_point_bet(p_bet uuid, p_result text)
 returns void language plpgsql security definer set search_path = public as $$
 declare v_bet public.bets%rowtype; v_credit bigint := 0;
