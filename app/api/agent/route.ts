@@ -58,5 +58,15 @@ export async function POST(request: Request) {
     if (error) return Response.json({ error: error.message }, { status: 400 });
     return Response.json({ ok: true });
   }
+  if (body.action === "role") {
+    const nextRole = String(body.role || "");
+    if (!["player", "agent", "admin"].includes(nextRole)) return Response.json({ error: "権限が正しくありません" }, { status: 400 });
+    if (nextRole === "admin" && me.role !== "admin") return Response.json({ error: "運営に変更できるのは管理者だけです" }, { status: 403 });
+    const { data: member } = await db.from("profiles").select("id").eq("id", body.userId).eq("parent_agent_id", me.id).single();
+    if (!member) return Response.json({ error: "自分の配下だけ操作できます" }, { status: 403 });
+    const { error } = await db.from("profiles").update({ role: nextRole, updated_at: new Date().toISOString() }).eq("id", member.id);
+    if (error) return Response.json({ error: error.message }, { status: 400 });
+    return Response.json({ ok: true });
+  }
   return Response.json({ error: "操作が正しくありません" }, { status: 400 });
 }
