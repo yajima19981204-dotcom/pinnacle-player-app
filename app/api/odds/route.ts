@@ -23,6 +23,28 @@ async function getOdds(sport: string) {
   return data;
 }
 
+async function addAlternateSpreads(game: any, sport: string) {
+  try {
+    const url = new URL(`https://api.the-odds-api.com/v4/sports/${sport}/events/${game.id}/odds`);
+    url.search = new URLSearchParams({
+      apiKey: process.env.ODDS_API_KEY || "",
+      bookmakers: "pinnacle",
+      markets: "alternate_spreads",
+      oddsFormat: "decimal",
+      dateFormat: "iso",
+    }).toString();
+    const response = await fetch(url, { next: { revalidate: 55 } });
+    if (!response.ok) return game;
+    const data = await response.json();
+    const alternate = data.bookmakers?.find((book: any) => book.key === "pinnacle")?.markets?.find((market: any) => market.key === "alternate_spreads");
+    if (!alternate) return game;
+    const bookmakers = game.bookmakers.map((book: any) => book.key === "pinnacle" ? { ...book, markets: [...book.markets, alternate] } : book);
+    return { ...game, bookmakers };
+  } catch {
+    return game;
+  }
+}
+
 export async function GET(request: Request) {
   const sport = new URL(request.url).searchParams.get("sport") || "baseball_mlb";
 
@@ -30,7 +52,7 @@ export async function GET(request: Request) {
     const results = await Promise.allSettled(
       Object.entries(soccerLeagues).map(async ([sportKey, leagueName]) => {
         const games = await getOdds(sportKey);
-        return games.map((game: object) => ({ ...game, sport_key: sportKey, league_name: leagueName }));
+        return Promise.all(games.map(async (game: object) => ({ ...await addAlternateSpreads(game, sportKey), sport_key: sportKey, league_name: leagueName })));
       }),
     );
     const games = results
@@ -43,7 +65,7 @@ export async function GET(request: Request) {
   if (!regularSports.has(sport)) return Response.json({ error: "競技が正しくありません" }, { status: 400 });
   try {
     const data = await getOdds(sport);
-    const games = data.map((game: object) => ({ ...game, sport_key: sport }));
+    const games = await Promise.all(data.map(async (game: object) => ({ ...await addAlternateSpreads(game, sport), sport_key: sport })));
     return Response.json({ games }, { headers: { "Cache-Control": "s-maxage=55, stale-while-revalidate=30" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "オッズを取得できません" }, { status: 502 });
