@@ -1,0 +1,7 @@
+.wallet .wallet-actions{flex-direction:row;flex-wrap:wrap}
+.admin-create{grid-template-columns:.8fr 1fr 1fr 1.5fr auto}
+.agent{border-color:#315d4b}
+.hint,.empty{color:var(--muted)}
+.empty{padding:10px}
+.panel-message{color:var(--green)}
+@media(max-width:650px){.admin-create{grid-template-columns:1fr}.wallet{align-items:flex-start}.wallet .wallet-actions{justify-content:flex-end}}
