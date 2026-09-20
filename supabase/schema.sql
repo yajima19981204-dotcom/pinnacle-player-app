@@ -77,3 +77,42 @@ begin
 end; $$;
 revoke all on function public.agent_transfer_points(uuid,bigint,text) from public;
 grant execute on function public.agent_transfer_points(uuid,bigint,text) to authenticated;
+
+create or replace function public.place_point_bet(
+  p_event_id text, p_sport_key text, p_commence_time timestamptz,
+  p_home_team text, p_away_team text, p_market_key text,
+  p_selection_name text, p_point numeric, p_odds numeric, p_stake bigint
+) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare v_profile public.profiles%rowtype; v_bet_id uuid; v_payout bigint;
+begin
+  if p_stake < 1 or p_stake > 1000000 or p_odds <= 1 then raise exception '賭け内容が正しくありません'; end if;
+  if p_commence_time <= now() then raise exception '開始済みの試合です'; end if;
+  select * into v_profile from public.profiles where id = auth.uid() for update;
+  if v_profile.id is null or not v_profile.active then raise exception '操作できないアカウントです'; end if;
+  if v_profile.balance < p_stake then raise exception 'ポイントが不足しています'; end if;
+  v_payout := floor(p_stake * p_odds);
+  update public.profiles set balance = balance - p_stake, updated_at = now() where id = v_profile.id;
+  insert into public.bets(user_id,event_id,sport_key,commence_time,home_team,away_team,market_key,selection_name,point,odds,stake,potential_payout)
+  values(v_profile.id,p_event_id,p_sport_key,p_commence_time,p_home_team,p_away_team,p_market_key,p_selection_name,p_point,p_odds,p_stake,v_payout)
+  returning id into v_bet_id;
+  return v_bet_id;
+end; $$;
+revoke all on function public.place_point_bet(text,text,timestamptz,text,text,text,text,numeric,numeric,bigint) from public;
+grant execute on function public.place_point_bet(text,text,timestamptz,text,text,text,text,numeric,numeric,bigint) to authenticated;
+
+create or replace function public.settle_point_bet(p_bet uuid, p_result text)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_bet public.bets%rowtype; v_credit bigint := 0;
+begin
+  if auth.role() <> 'service_role' then raise exception '管理処理専用です'; end if;
+  if p_result not in ('win','loss','push') then raise exception '結果が正しくありません'; end if;
+  select * into v_bet from public.bets where id = p_bet for update;
+  if v_bet.id is null or v_bet.status = 'settled' then return; end if;
+  if p_result = 'win' then v_credit := v_bet.potential_payout;
+  elsif p_result = 'push' then v_credit := v_bet.stake; end if;
+  update public.bets set status='settled', result=p_result where id=v_bet.id;
+  if v_credit > 0 then update public.profiles set balance=balance+v_credit,updated_at=now() where id=v_bet.user_id; end if;
+end; $$;
+revoke all on function public.settle_point_bet(uuid,text) from public;
+grant execute on function public.settle_point_bet(uuid,text) to service_role;
