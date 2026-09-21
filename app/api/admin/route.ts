@@ -2,7 +2,19 @@ import { adminSupabase, playerEmail, requireUser } from "@/lib/supabase";
 async function admin(request: Request) { const user = await requireUser(request); if (!user) return null; const { data } = await adminSupabase().from("profiles").select("role").eq("id", user.id).single(); return data?.role === "admin" ? user : null; }
 export async function GET(request: Request) {
   if (!await admin(request)) return Response.json({ error: "管理者専用です" }, { status: 403 });
-  const db = adminSupabase(); const users = await db.from("profiles").select("*").order("created_at"); const logs = await db.from("point_transactions").select("*,profiles!point_transactions_user_id_fkey(player_id,display_name)").order("created_at", { ascending: false }).limit(100);
+  const db = adminSupabase();
+  const url = new URL(request.url);
+  if (url.searchParams.get("view") === "bets") {
+    const page = Math.max(0, Number(url.searchParams.get("page")) || 0);
+    const pageSize = 100;
+    const { data, error } = await db.from("bets")
+      .select("*,player:profiles!bets_user_id_fkey(player_id,display_name)")
+      .order("created_at", { ascending: false })
+      .range(page * pageSize, (page + 1) * pageSize - 1);
+    if (error) return Response.json({ error: error.message }, { status: 500 });
+    return Response.json({ bets: data || [], hasMore: (data || []).length === pageSize });
+  }
+  const users = await db.from("profiles").select("*").order("created_at"); const logs = await db.from("point_transactions").select("*,profiles!point_transactions_user_id_fkey(player_id,display_name)").order("created_at", { ascending: false }).limit(100);
   return Response.json({ users: users.data || [], logs: logs.data || [] });
 }
 export async function POST(request: Request) {
