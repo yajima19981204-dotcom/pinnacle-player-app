@@ -11,10 +11,25 @@ async function actor(request: Request) {
 export async function GET(request: Request) {
   const me = await actor(request);
   if (!me) return Response.json({ error: "エージェント権限が必要です" }, { status: 403 });
-  const { data, error } = await adminSupabase().from("profiles")
+  const db = adminSupabase();
+  const url = new URL(request.url);
+  const { data, error } = await db.from("profiles")
     .select("id,player_id,display_name,role,balance,active,parent_agent_id,created_at")
     .eq("parent_agent_id", me.id).order("created_at");
   if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (url.searchParams.get("view") === "bets") {
+    const memberIds = (data || []).map(member => member.id);
+    if (!memberIds.length) return Response.json({ bets: [], hasMore: false });
+    const page = Math.max(0, Number(url.searchParams.get("page")) || 0);
+    const pageSize = 100;
+    const { data: bets, error: betsError } = await db.from("bets")
+      .select("*,player:profiles!bets_user_id_fkey(player_id,display_name)")
+      .in("user_id", memberIds)
+      .order("created_at", { ascending: false })
+      .range(page * pageSize, (page + 1) * pageSize - 1);
+    if (betsError) return Response.json({ error: betsError.message }, { status: 500 });
+    return Response.json({ bets: bets || [], hasMore: (bets || []).length === pageSize });
+  }
   return Response.json({ members: data || [] });
 }
 
